@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import ctypes
 import os
+import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 from tkinter import Tk, StringVar, BooleanVar, messagebox, ttk
 from PIL import Image, ImageTk
 
 APP_NAME = "Walltext Setup"
-REPO_ROOT = Path(__file__).resolve().parent
+PAYLOAD_NAME = "walltext-package.zip"
 LOCAL_APPDATA = Path(os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")))
 INSTALL_ROOT = LOCAL_APPDATA / "walltext"
 BIN_DIR = INSTALL_ROOT / "bin"
@@ -57,7 +59,8 @@ class InstallerApp:
         self.root.geometry("760x520")
         self.root.resizable(False, False)
         
-        icon_path = REPO_ROOT / "walltext" / "branding" / "walltext.ico"
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        icon_path = base / "walltext" / "branding" / "walltext.ico"
         if icon_path.exists():
             try:
                 self.root.iconbitmap(str(icon_path))
@@ -72,8 +75,18 @@ class InstallerApp:
         self.status_var = StringVar(value="Ready to install.")
         
         self._logo_image = None
+        
+        try:
+            self.payload_zip = self.resolve_payload_zip()
+        except Exception:
+            self.payload_zip = None
+
         self.build_ui()
         self.show_step(0)
+
+    def resolve_payload_zip(self) -> Path:
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        return base / PAYLOAD_NAME
 
     def build_ui(self) -> None:
         style = ttk.Style()
@@ -99,7 +112,8 @@ class InstallerApp:
         header = ttk.Frame(outer)
         header.grid(row=0, column=0, sticky="ew", pady=(0, 16))
         
-        logo_path = REPO_ROOT / "walltext" / "branding" / "walltext.png"
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+        logo_path = base / "walltext" / "branding" / "walltext.png"
         if logo_path.exists():
             try:
                 img = Image.open(logo_path)
@@ -196,8 +210,18 @@ class InstallerApp:
             py_exe = sys.executable
             subprocess.run([py_exe, "-m", "pip", "install", "--upgrade", "pip"], check=True, capture_output=True)
 
+            if self.payload_zip and self.payload_zip.exists():
+                self.set_progress(20, "Extracting Walltext payload...")
+                INSTALL_ROOT.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(self.payload_zip, "r") as archive:
+                    archive.extractall(INSTALL_ROOT)
+                pkg_dir = INSTALL_ROOT
+            else:
+                # Fallback purely to local dev if ZIP is missing
+                pkg_dir = Path(__file__).resolve().parent
+
             self.set_progress(40, "Installing walltext package (editable mode)...")
-            subprocess.run([py_exe, "-m", "pip", "install", "-e", str(REPO_ROOT)], check=True, capture_output=True)
+            subprocess.run([py_exe, "-m", "pip", "install", "-e", str(pkg_dir)], check=True, capture_output=True)
 
             self.set_progress(60, "Initializing walltext config...")
             subprocess.run([py_exe, "-m", "walltext", "config", "init"], check=False)
